@@ -1,0 +1,5 @@
+{
+  "name": "Copy of Fake News Detector",
+  "description": "An AI-powered application to verify news headlines against reliable web sources. Select a year, enter a headline, and let Gemini determine if it's true, fake, or unverified.",
+  "requestFramePermissions": []
+}
