@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_GEMINI_API_KEY: string;
+  // No client-side env vars needed — API key lives in the Netlify function
 }
 
 interface ImportMeta {
