@@ -56,10 +56,8 @@ exports.handler = async function (event) {
 
     if (!geminiRes.ok) {
       console.error("Gemini error:", JSON.stringify(data));
-      if (geminiRes.status === 429) {
-        return { statusCode: 429, body: JSON.stringify({ error: "API quota exceeded. Please try again later." }) };
-      }
-      return { statusCode: 502, body: JSON.stringify({ error: "Gemini API returned an error." }) };
+      var googleMsg = (data.error && data.error.message) || JSON.stringify(data);
+      return { statusCode: geminiRes.status, body: JSON.stringify({ error: "Google API [" + geminiRes.status + "]: " + googleMsg }) };
     }
 
     const text = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || "";
