@@ -1,38 +1,22 @@
-import { GoogleGenAI } from "@google/genai";
-
 export async function handler(event) {
-  // Only allow POST requests
   if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      body: JSON.stringify({ error: "Method Not Allowed" }),
-    };
+    return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
-
   if (!apiKey) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: "Server misconfiguration: API key is missing." }),
-    };
+    return { statusCode: 500, body: JSON.stringify({ error: "API key not configured." }) };
   }
 
   let headline, year;
   try {
     ({ headline, year } = JSON.parse(event.body));
   } catch {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: "Invalid request body." }),
-    };
+    return { statusCode: 400, body: JSON.stringify({ error: "Invalid request body." }) };
   }
 
-  if (!headline || !headline.trim()) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: "A headline is required." }),
-    };
+  if (!headline?.trim()) {
+    return { statusCode: 400, body: JSON.stringify({ error: "A headline is required." }) };
   }
 
   const prompt = `
@@ -40,35 +24,49 @@ export async function handler(event) {
     Headline: "${headline}"
 
     Your task is to act as a rigorous fact-checker.
-    1. Use your search tool to find credible news sources from the specified year (${year}) that report on this topic.
-    2. Based on high-quality sources, determine if the headline is true and accurately represents the event.
-    3. Respond ONLY in the following structured format. Do not add any introductory or concluding text outside of this structure.
+    1. Search for credible news sources from ${year} that report on this topic.
+    2. Determine if the headline is true and accurately represents the event.
+    3. Respond ONLY in the following structured format:
 
     ---
-    STATUS: [Respond with only one of: TRUE, FAKE, or NOT_FOUND]
+    STATUS: [TRUE, FAKE, or NOT_FOUND]
     ---
-    SUMMARY: [If TRUE, provide a concise 2-3 line summary of the real news event. Otherwise, write N/A.]
+    SUMMARY: [2-3 line summary if TRUE, otherwise N/A]
     ---
-    SOURCE: [If TRUE, name the primary, credible news source. Otherwise, write N/A.]
+    SOURCE: [Primary credible source if TRUE, otherwise N/A]
     ---
-    DATE: [If TRUE, provide the publication date (e.g., Month Day, Year). Otherwise, write N/A.]
+    DATE: [Publication date if TRUE, otherwise N/A]
     ---
   `;
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.1 },
+        }),
+      }
+    );
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: prompt,
-      config: { temperature: 0.1 },
-    });
+    if (!geminiRes.ok) {
+      const errBody = await geminiRes.json();
+      console.error("Gemini API error:", errBody);
+      const status = geminiRes.status;
+      if (status === 429) {
+        return { statusCode: 429, body: JSON.stringify({ error: "API quota exceeded. Please try again later." }) };
+      }
+      return { statusCode: 502, body: JSON.stringify({ error: "Gemini API returned an error." }) };
+    }
 
-    const text = response.text;
-    const sources =
-      response.candidates?.[0]?.groundingMetadata?.groundingChunks?.filter(
-        (chunk) => chunk.web?.uri && chunk.web?.title
-      ) ?? [];
+    const data = await geminiRes.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+
+    const rawSources = data.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [];
+    const sources = rawSources.filter((c) => c.web?.uri && c.web?.title);
 
     return {
       statusCode: 200,
@@ -76,26 +74,10 @@ export async function handler(event) {
       body: JSON.stringify({ text, sources }),
     };
   } catch (error) {
-    console.error("Gemini API error:", error);
-
-    const message = error instanceof Error ? error.message : "Unknown error";
-
-    if (
-      message.includes("429") ||
-      message.includes("RESOURCE_EXHAUSTED") ||
-      message.includes("quota")
-    ) {
-      return {
-        statusCode: 429,
-        body: JSON.stringify({ error: `API quota exceeded. ${message}` }),
-      };
-    }
-
+    console.error("Function error:", error);
     return {
       statusCode: 500,
-      body: JSON.stringify({
-        error: "Failed to get a response from the AI. Please try again.",
-      }),
+      body: JSON.stringify({ error: "Internal server error. Please try again." }),
     };
   }
 }
