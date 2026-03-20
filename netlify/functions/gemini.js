@@ -1,4 +1,4 @@
-export async function handler(event) {
+exports.handler = async function (event) {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
   }
@@ -11,11 +11,11 @@ export async function handler(event) {
   let headline, year;
   try {
     ({ headline, year } = JSON.parse(event.body));
-  } catch {
+  } catch (e) {
     return { statusCode: 400, body: JSON.stringify({ error: "Invalid request body." }) };
   }
 
-  if (!headline?.trim()) {
+  if (!headline || !headline.trim()) {
     return { statusCode: 400, body: JSON.stringify({ error: "A headline is required." }) };
   }
 
@@ -41,7 +41,7 @@ export async function handler(event) {
 
   try {
     const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -52,32 +52,30 @@ export async function handler(event) {
       }
     );
 
+    const data = await geminiRes.json();
+
     if (!geminiRes.ok) {
-      const errBody = await geminiRes.json();
-      console.error("Gemini API error:", errBody);
-      const status = geminiRes.status;
-      if (status === 429) {
+      console.error("Gemini error:", JSON.stringify(data));
+      if (geminiRes.status === 429) {
         return { statusCode: 429, body: JSON.stringify({ error: "API quota exceeded. Please try again later." }) };
       }
       return { statusCode: 502, body: JSON.stringify({ error: "Gemini API returned an error." }) };
     }
 
-    const data = await geminiRes.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-
-    const rawSources = data.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [];
-    const sources = rawSources.filter((c) => c.web?.uri && c.web?.title);
+    const text = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || "";
+    const rawSources = (data.candidates && data.candidates[0] && data.candidates[0].groundingMetadata && data.candidates[0].groundingMetadata.groundingChunks) || [];
+    const sources = rawSources.filter(function (c) { return c.web && c.web.uri && c.web.title; });
 
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, sources }),
+      body: JSON.stringify({ text: text, sources: sources }),
     };
   } catch (error) {
-    console.error("Function error:", error);
+    console.error("Function error:", error.message || error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Internal server error. Please try again." }),
+      body: JSON.stringify({ error: "Internal server error: " + (error.message || "unknown") }),
     };
   }
-}
+};
